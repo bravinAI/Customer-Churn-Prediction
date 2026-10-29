@@ -1,0 +1,14 @@
+.git
+.venv
+venv
+env
+__pycache__
+*.py[cod]
+.env
+.env.*
+.ipynb_checkpoints
+notebooks
+data
+tests
+README.md
+requirements-dev.txt

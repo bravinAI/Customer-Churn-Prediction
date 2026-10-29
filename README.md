@@ -38,15 +38,83 @@ The following metrics were calculated on the same held-out test set using each m
 
 Using F1-score as a balance between precision and recall, with recall as the tie-breaker, Logistic Regression ranks first in this run. It identifies more of the churned customers (higher recall), while Random Forest has higher accuracy and precision. This is a trade-off, not evidence that one model is best for every business; outreach costs and capacity should inform any real decision.
 
+The selected, fitted Logistic Regression pipeline is saved as `models/churn_pipeline.joblib`. It includes both preprocessing and the classifier, so the API applies the same imputation, scaling, and one-hot encoding used during training. The model is loaded at API startup; API requests do not retrain it.
+
+## FastAPI
+
+The API exposes:
+
+- `GET /health` — confirms the service is running and the saved pipeline loaded.
+- `POST /predict` — accepts the 19 model features and returns `predicted_churn` (`"Yes"` or `"No"`) and `churn_probability` (from 0 to 1).
+
+`customerID` and `Churn` are not API inputs. `TotalCharges` must be numeric or `null`; `null` is passed through the pipeline's existing median imputer. Categorical strings are not restricted to the values in the training data because the fitted encoder is configured to ignore unseen categories.
+
+### Run locally
+
+Use the same Anaconda environment selected for the notebook. A plain system `python` can point to a different interpreter and may not have FastAPI installed. Check the active interpreter with `python -c "import sys; print(sys.executable)"` before starting the service. The current notebook environment already has FastAPI, Uvicorn, and the model libraries; you do not need to reinstall them there.
+
+From the project root in an Anaconda Prompt:
+
+```powershell
+python -m uvicorn app.main:app --reload
+```
+
+If preparing a fresh, separate API environment, install `requirements.txt` for the runtime and `requirements-dev.txt` for tests in that environment. The NumPy constraint there avoids the SciPy compatibility warning observed in the existing Anaconda environment. Do not reinstall into the notebook's environment just to run this API. The model file must remain at `models/churn_pipeline.joblib` relative to the project root.
+
+When the server starts, open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) to try the endpoints interactively. The health endpoint is [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health).
+
+### Example request
+
+This body uses the first row of the existing CSV after converting `TotalCharges` from its CSV text representation to a number:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri http://127.0.0.1:8000/predict `
+  -ContentType 'application/json' `
+  -Body '{"gender":"Female","SeniorCitizen":0,"Partner":"Yes","Dependents":"No","tenure":1,"PhoneService":"No","MultipleLines":"No phone service","InternetService":"DSL","OnlineSecurity":"No","OnlineBackup":"Yes","DeviceProtection":"No","TechSupport":"No","StreamingTV":"No","StreamingMovies":"No","Contract":"Month-to-month","PaperlessBilling":"Yes","PaymentMethod":"Electronic check","MonthlyCharges":29.85,"TotalCharges":29.85}'
+```
+
+For that dataset row, the fitted pipeline returns `predicted_churn: "Yes"` with a churn probability of about `0.8021` (80.21%), while the recorded `Churn` value is `No`. The API does not receive or return that actual label. This single prediction is an example for one customer row; it is not an evaluation metric. The accuracy, precision, recall, F1-score, and ROC-AUC above were computed separately on the held-out test set.
+
+### Run tests
+
+From the project root in the same Anaconda environment:
+
+```powershell
+python -B -m unittest discover -s tests -v
+```
+
+The tests check that the saved artifact loads as a fitted pipeline, the health endpoint responds, a dataset row receives a prediction and probability, a missing `TotalCharges` value is imputed, and invalid or extra inputs are rejected.
+
+### Container image
+
+The included `Dockerfile` packages only the API, its pinned runtime dependencies, and the saved model. Build and run it locally with Docker:
+
+```powershell
+docker build -t customer-churn-api .
+docker run --rm -p 8000:8000 customer-churn-api
+```
+
+No hosted service is configured or created by these local commands. A hosted deployment requires connecting an account and choosing a platform/service; confirm the provider and any costs before creating it.
+
 ## Project structure
 
 ```text
 Customer-Churn-Prediction/
+├── app/
+│   └── main.py
 ├── data/
 │   └── raw/
 │       └── Telco-Customer-Churn.csv
+├── models/
+│   └── churn_pipeline.joblib
 ├── notebooks/
 │   └── customer_churn_prediction.ipynb
+├── tests/
+│   └── test_api.py
+├── Dockerfile
+├── requirements.txt
+├── requirements-dev.txt
 ├── .gitignore
 └── README.md
 ```
